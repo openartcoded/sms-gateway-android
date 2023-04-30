@@ -2,14 +2,15 @@ package tech.artcoded.smsgateway
 
 import android.Manifest
 import android.annotation.SuppressLint
-import android.app.PendingIntent
 import android.content.Context
+import android.os.Build
 import android.os.Bundle
 import android.telephony.SmsManager
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.annotation.RequiresApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -43,15 +44,19 @@ import org.eclipse.paho.client.mqttv3.DisconnectedBufferOptions
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
-import org.eclipse.paho.client.mqttv3.MqttCallback
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttMessage
+import org.json.JSONObject
+import org.json.JSONTokener
 import tech.artcoded.smsgateway.ui.theme.SmsGatewayTheme
 
+
 const val TOPIC = "sms"
+
 @OptIn(ExperimentalPermissionsApi::class)
 class MainActivity : ComponentActivity() {
+    @RequiresApi(Build.VERSION_CODES.P)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         title = "Sms Gateway"
@@ -85,15 +90,26 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-fun startMqtt(androidCtx: Context, endpoint: String, username: String, password: String): MqttAndroidClient {
-    val mqttAndroidClient = MqttAndroidClient(androidCtx, endpoint, "$username-android-client-${System.currentTimeMillis()}")
+fun startMqtt(
+    androidCtx: Context,
+    endpoint: String,
+    username: String,
+    password: String,
+    onReceiveNotify: (n: String) -> Unit,
+): MqttAndroidClient {
+    val mqttAndroidClient = MqttAndroidClient(
+        androidCtx,
+        endpoint,
+        "$username-android-client-${System.currentTimeMillis()}"
+    )
+    val smsManager = androidCtx.getSystemService(SmsManager::class.java)
 
     mqttAndroidClient.setCallback(object : MqttCallbackExtended {
         override fun connectComplete(reconnect: Boolean, serverURI: String) {
             if (reconnect) {
                 Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
                 // Because Clean Session is true, we need to re-subscribe
-                subscribeToTopic(androidCtx,mqttAndroidClient)
+                subscribeToTopic(androidCtx, mqttAndroidClient)
             } else {
                 Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
             }
@@ -104,7 +120,16 @@ fun startMqtt(androidCtx: Context, endpoint: String, username: String, password:
         }
 
         override fun messageArrived(topic: String, message: MqttMessage) {
-            Toast.makeText(androidCtx, "Incoming message:  ${message.toString()}", Toast.LENGTH_SHORT).show()
+            val json = JSONTokener(message.toString()).nextValue() as JSONObject
+            val phoneNumber = json.getString("phoneNumber")
+            val textMessage = json.getString("message")
+            smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
+            onReceiveNotify(phoneNumber)
+            Toast.makeText(
+                androidCtx,
+                "Incoming message:  $textMessage",
+                Toast.LENGTH_SHORT
+            ).show()
         }
 
         override fun deliveryComplete(token: IMqttDeliveryToken) {}
@@ -122,16 +147,21 @@ fun startMqtt(androidCtx: Context, endpoint: String, username: String, password:
             disconnectedBufferOptions.isPersistBuffer = false
             disconnectedBufferOptions.isDeleteOldestMessages = false
             mqttAndroidClient.setBufferOpts(disconnectedBufferOptions)
-            subscribeToTopic(androidCtx,mqttAndroidClient)
+            subscribeToTopic(androidCtx, mqttAndroidClient)
         }
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
             Log.e(this.javaClass.name, "Error: ", exception)
-            Toast.makeText(androidCtx, "Failed to connect: ${exception?.message}", Toast.LENGTH_SHORT).show()
+            Toast.makeText(
+                androidCtx,
+                "Failed to connect: ${exception?.message}",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     })
     return mqttAndroidClient
 }
+
 fun subscribeToTopic(context: Context, mqttAndroidClient: MqttAndroidClient) {
     mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken) {
@@ -145,6 +175,7 @@ fun subscribeToTopic(context: Context, mqttAndroidClient: MqttAndroidClient) {
         }
     })
 }
+
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -166,7 +197,6 @@ fun SmsGatewayMainPage(
     } else {
         // useful spaghetti code starts here
         val androidCtx = LocalContext.current
-        val smsManager = androidCtx.getSystemService(SmsManager::class.java)
         var endpoint by remember {
             mutableStateOf(defaultEndpoint)
         }
@@ -188,13 +218,8 @@ fun SmsGatewayMainPage(
                     mqttClient!!.apply { disconnect() }
                     null
                 } else {
-                    startMqtt(androidCtx,endpoint, username, password)
+                    startMqtt(androidCtx, endpoint, username, password, onReceiveNotify = {logTraces+="\nSend message to $it"})
                 }
-                /* while (started) {
-                     logTraces += "\n sending message..."
-                     smsManager.sendTextMessage("+32XXXXXXX", null, "hello", null, null)
-                     delay(6000)
-                 }*/
             }
         }
 
