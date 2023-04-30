@@ -3,6 +3,7 @@ package tech.artcoded.smsgateway
 import android.Manifest
 import android.annotation.SuppressLint
 import android.app.PendingIntent
+import android.content.Context
 import android.os.Bundle
 import android.telephony.SmsManager
 import android.util.Log
@@ -35,14 +36,20 @@ import androidx.compose.ui.unit.dp
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
+import info.mqtt.android.service.MqttAndroidClient
+import info.mqtt.android.service.QoS
 import kotlinx.coroutines.*
+import org.eclipse.paho.client.mqttv3.DisconnectedBufferOptions
 import org.eclipse.paho.client.mqttv3.IMqttActionListener
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
 import org.eclipse.paho.client.mqttv3.IMqttToken
 import org.eclipse.paho.client.mqttv3.MqttCallback
+import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions
 import org.eclipse.paho.client.mqttv3.MqttMessage
 import tech.artcoded.smsgateway.ui.theme.SmsGatewayTheme
 
+const val TOPIC = "sms"
 @OptIn(ExperimentalPermissionsApi::class)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,6 +85,66 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+fun startMqtt(androidCtx: Context, endpoint: String, username: String, password: String): MqttAndroidClient {
+    val mqttAndroidClient = MqttAndroidClient(androidCtx, endpoint, "$username-android-client-${System.currentTimeMillis()}")
+
+    mqttAndroidClient.setCallback(object : MqttCallbackExtended {
+        override fun connectComplete(reconnect: Boolean, serverURI: String) {
+            if (reconnect) {
+                Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
+                // Because Clean Session is true, we need to re-subscribe
+                subscribeToTopic(androidCtx,mqttAndroidClient)
+            } else {
+                Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        override fun connectionLost(cause: Throwable?) {
+            Toast.makeText(androidCtx, "The Connection was lost.", Toast.LENGTH_SHORT).show()
+        }
+
+        override fun messageArrived(topic: String, message: MqttMessage) {
+            Toast.makeText(androidCtx, "Incoming message:  ${message.toString()}", Toast.LENGTH_SHORT).show()
+        }
+
+        override fun deliveryComplete(token: IMqttDeliveryToken) {}
+    })
+    val mqttConnectOptions = MqttConnectOptions()
+    mqttConnectOptions.isAutomaticReconnect = true
+    mqttConnectOptions.isCleanSession = false
+    mqttConnectOptions.userName = username
+    mqttConnectOptions.password = password.toCharArray()
+    mqttAndroidClient.connect(mqttConnectOptions, null, object : IMqttActionListener {
+        override fun onSuccess(asyncActionToken: IMqttToken) {
+            val disconnectedBufferOptions = DisconnectedBufferOptions()
+            disconnectedBufferOptions.isBufferEnabled = true
+            disconnectedBufferOptions.bufferSize = 100
+            disconnectedBufferOptions.isPersistBuffer = false
+            disconnectedBufferOptions.isDeleteOldestMessages = false
+            mqttAndroidClient.setBufferOpts(disconnectedBufferOptions)
+            subscribeToTopic(androidCtx,mqttAndroidClient)
+        }
+
+        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+            Log.e(this.javaClass.name, "Error: ", exception)
+            Toast.makeText(androidCtx, "Failed to connect: ${exception?.message}", Toast.LENGTH_SHORT).show()
+        }
+    })
+    return mqttAndroidClient
+}
+fun subscribeToTopic(context: Context, mqttAndroidClient: MqttAndroidClient) {
+    mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
+        override fun onSuccess(asyncActionToken: IMqttToken) {
+            Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
+        }
+
+        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
+            Log.e(this.javaClass.name, "Failed to subscribe $exception")
+            Toast.makeText(context, "Failed to subscribe to $TOPIC", Toast.LENGTH_SHORT).show()
+
+        }
+    })
+}
 @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -100,12 +167,11 @@ fun SmsGatewayMainPage(
         // useful spaghetti code starts here
         val androidCtx = LocalContext.current
         val smsManager = androidCtx.getSystemService(SmsManager::class.java)
-        val topic = "sms"
         var endpoint by remember {
             mutableStateOf(defaultEndpoint)
         }
         var mqttClient by remember {
-            mutableStateOf(null as MQTTClient?)
+            mutableStateOf(null as MqttAndroidClient?)
         }
         var username by remember { mutableStateOf("artemis") }
         var password by remember { mutableStateOf("artemis") }
@@ -118,104 +184,11 @@ fun SmsGatewayMainPage(
                 logTraces += if (started) "\nStarted..." else {
                     "\nStopped..."
                 }
-                if (!started && mqttClient != null) {
-                    mqttClient!!.unsubscribe(topic, object : IMqttActionListener {
-                        override fun onSuccess(asyncActionToken: IMqttToken?) {
-                            Log.d(this.javaClass.name, "client unsubscribed")
-                            mqttClient!!.disconnect(object : IMqttActionListener {
-                                override fun onSuccess(asyncActionToken: IMqttToken?) {
-                                    Log.d(this.javaClass.name, "client disconnected")
-                                    mqttClient!!.close()
-                                }
-
-                                override fun onFailure(
-                                    asyncActionToken: IMqttToken?,
-                                    exception: Throwable?
-                                ) {
-                                    Log.e(this.javaClass.name, "could not disconnect $exception")
-                                }
-                            })
-                        }
-
-                        override fun onFailure(
-                            asyncActionToken: IMqttToken?,
-                            exception: Throwable?
-                        ) {
-                            Log.e(this.javaClass.name, "could not unsubscribe $exception")
-                        }
-                    })
-
+                mqttClient = if (!started && mqttClient != null) {
+                    mqttClient!!.apply { disconnect() }
+                    null
                 } else {
-                    mqttClient = MQTTClient(context = androidCtx, endpoint)
-                    mqttClient?.connect(username,
-                        password,
-                        cbConnect = object : IMqttActionListener {
-                            override fun onSuccess(asyncActionToken: IMqttToken?) {
-                                Log.d(this.javaClass.name, "Connection success")
-
-                                Toast.makeText(
-                                    androidCtx,
-                                    "MQTT Connection success",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                mqttClient?.subscribe(topic, 1,
-                                    object : IMqttActionListener {
-                                        override fun onSuccess(asyncActionToken: IMqttToken?) {
-                                            val msg = "Subscribed to: sms"
-                                            Log.d(this.javaClass.name, msg)
-
-                                            Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
-                                        }
-
-                                        override fun onFailure(
-                                            asyncActionToken: IMqttToken?,
-                                            exception: Throwable?
-                                        ) {
-                                            Log.d(this.javaClass.name, "Failed to subscribe: sms $exception")
-                                            Toast.makeText(
-                                                androidCtx,
-                                                "failed to subscribe ${exception.toString()}",
-                                                Toast.LENGTH_SHORT
-                                            ).show()
-
-                                        }
-                                    })
-                            }
-
-                            override fun onFailure(
-                                asyncActionToken: IMqttToken?,
-                                exception: Throwable?
-                            ) {
-                                Log.d(
-                                    this.javaClass.name,
-                                    "Connection failure: ${exception.toString()}"
-                                )
-
-                                Toast.makeText(
-                                    androidCtx,
-                                    "MQTT Connection fails: ${exception.toString()}",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                            }
-                        },
-                        cbClient = object : MqttCallback {
-                            override fun messageArrived(topic: String?, message: MqttMessage?) {
-                                val msg =
-                                    "Receive message: ${message.toString()} from topic: $topic"
-                                Log.d(this.javaClass.name, msg)
-
-                                Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
-                            }
-
-                            override fun connectionLost(cause: Throwable?) {
-                                Log.d(this.javaClass.name, "Connection lost ${cause.toString()}")
-                            }
-
-                            override fun deliveryComplete(token: IMqttDeliveryToken?) {
-                                Log.d(this.javaClass.name, "Delivery complete")
-                            }
-                        })
-
+                    startMqtt(androidCtx,endpoint, username, password)
                 }
                 /* while (started) {
                      logTraces += "\n sending message..."
