@@ -10,6 +10,7 @@ import android.os.IBinder
 import android.telephony.SmsManager
 import android.util.Log
 import android.widget.Toast
+import androidx.lifecycle.MutableLiveData
 import info.mqtt.android.service.MqttAndroidClient
 import info.mqtt.android.service.QoS
 import kotlinx.coroutines.CoroutineScope
@@ -36,6 +37,28 @@ class MqttForegroundService() : Service() {
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + Job())
     private var mqttAndroidClient: MqttAndroidClient? = null
 
+    companion object {
+        val BUS = MutableLiveData<Boolean>()
+        val onFailure: (context: Context) -> Unit = {
+            if (BUS.hasActiveObservers()) {
+                BUS.postValue(false)
+            }
+            /*   with(Utils.createEncryptedSharedPrefDestructively(context = it).edit()) {
+                   putBoolean("isConnected", false)
+                   commit()
+               }*/
+        }
+        val onSubscribed: (context: Context) -> Unit = {
+            if (BUS.hasActiveObservers()) {
+                BUS.postValue(true)
+            }
+            /* with(Utils.createEncryptedSharedPrefDestructively(it).edit()) {
+                 putBoolean("isConnected", true)
+                 commit()
+             }*/
+        }
+    }
+
     override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
         when (intent.action) {
             START_MQTT_SERVICE_ACTION -> {
@@ -47,13 +70,8 @@ class MqttForegroundService() : Service() {
                     prefs.getString("username", "")!!,
                     prefs.getString("password", "")!!,
                     onReceiveNotify = {},
-                    onFailure = {},
-                    onSubscribed = {
-                        with(Utils.createEncryptedSharedPrefDestructively(this).edit()) {
-                            putBoolean("isConnected", true)
-                            apply()
-                        }
-                    }
+                    onFailure = onFailure,
+                    onSubscribed = onSubscribed
                 )
 
 
@@ -93,11 +111,8 @@ class MqttForegroundService() : Service() {
     }
 
     override fun onDestroy() {
+        onFailure(this)
         mqttAndroidClient?.disconnect()
-        with(Utils.createEncryptedSharedPrefDestructively(this).edit()) {
-            putBoolean("isConnected", false)
-            commit()
-        }
         super.onDestroy()
     }
 }
@@ -109,8 +124,8 @@ private fun startMqtt(
     username: String,
     password: String,
     onReceiveNotify: (n: String) -> Unit,
-    onFailure: (n: String) -> Unit,
-    onSubscribed: () -> Unit,
+    onFailure: (context: Context) -> Unit,
+    onSubscribed: (context: Context) -> Unit,
 ): MqttAndroidClient {
     val mqttAndroidClient = MqttAndroidClient(
         androidCtx, endpoint, "$username-android-client-${System.currentTimeMillis()}"
@@ -133,7 +148,7 @@ private fun startMqtt(
             val msg = "The Connection was lost."
             Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
             try {
-                onFailure(msg)
+                onFailure(androidCtx)
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onFailure ${e.message}")
             }
@@ -186,7 +201,7 @@ private fun startMqtt(
             ).show()
 
             try {
-                onFailure(msg)
+                onFailure(androidCtx)
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onFailure ${e.message}")
             }
@@ -198,13 +213,13 @@ private fun startMqtt(
 private fun subscribeToTopic(
     context: Context,
     mqttAndroidClient: MqttAndroidClient,
-    onSubscribed: () -> Unit
+    onSubscribed: (context: Context) -> Unit
 ) {
     mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken) {
             Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
             try {
-                onSubscribed()
+                onSubscribed(context)
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onSuccess ${e.message}")
             }

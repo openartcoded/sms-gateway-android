@@ -7,12 +7,9 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -20,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -30,7 +28,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -51,7 +48,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         title = "Sms Gateway"
 
-
         setContent {
 
             val multiplePermissionsState = rememberMultiplePermissionsState(
@@ -67,7 +63,12 @@ class MainActivity : ComponentActivity() {
             )
 
             SmsGatewayTheme {
-                SmsGatewayMainPage(multiplePermissionsState)
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    SmsGatewayMainPage(
+                        activity = this,
+                        multiplePermissionsState = multiplePermissionsState
+                    )
+                }
             }
 
 
@@ -81,7 +82,9 @@ class MainActivity : ComponentActivity() {
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SmsGatewayMainPage(
-    multiplePermissionsState: MultiplePermissionsState, modifier: Modifier = Modifier
+    activity: MainActivity,
+    multiplePermissionsState: MultiplePermissionsState,
+    modifier: Modifier = Modifier
 ) {
     if (!multiplePermissionsState.allPermissionsGranted) {
         Column(
@@ -107,21 +110,16 @@ fun SmsGatewayMainPage(
         var username by remember { mutableStateOf(prefs.getString("username", "")!!) }
         var password by remember { mutableStateOf(prefs.getString("password", "")!!) }
         var passwordVisible by remember { mutableStateOf(false) }
-        var started by remember { mutableStateOf(prefs.getBoolean("isConnected", false)) }
-        var logTraces by remember {
-            mutableStateOf(
-                if (started) {
-                    "Started"
-                } else "Not started..."
-            )
+        var started by remember { mutableStateOf(false) }
+        MqttForegroundService.BUS.observe(activity) {
+            it?.let {
+                started = it
+            }
         }
         val coroutineScope = rememberCoroutineScope()
         val startStopToggle: () -> Unit = {
             coroutineScope.launch {
                 started = !started
-                logTraces += if (started) "\nStarted..." else {
-                    "\nStopped..."
-                }
                 if (!started) {
                     mqttService = Intent(androidCtx, MqttForegroundService::class.java)
                     mqttService.action = STOP_MQTT_SERVICE_ACTION
@@ -139,9 +137,11 @@ fun SmsGatewayMainPage(
                 }
             }
         }
-        Box(
+        Column(
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .padding(2.dp)
+                .padding(10.dp)
                 .fillMaxWidth()
         ) {
             Column(
@@ -195,19 +195,6 @@ fun SmsGatewayMainPage(
                 ) {
                     Text(
                         if (started) "Stop" else "Start", modifier = modifier
-                    )
-                }
-                Spacer(modifier = Modifier.height(5.dp))
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(color = Color.LightGray, shape = RoundedCornerShape(5.dp))
-                ) {
-                    Text(
-                        text = logTraces,
-                        modifier = Modifier
-                            .padding(5.dp)
-                            .verticalScroll(rememberScrollState(0)),
                     )
                 }
             }
