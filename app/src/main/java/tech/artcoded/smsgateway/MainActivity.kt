@@ -142,11 +142,11 @@ fun startMqtt(
         override fun messageArrived(topic: String, message: MqttMessage) {
             val json = JSONTokener(message.toString()).nextValue() as JSONObject
             val phoneNumber = json.getString("phoneNumber")
-            val textMessage = json.getString("message")
-            smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
+            val textMessages = smsManager.divideMessage(json.getString("message"))
+            smsManager.sendMultipartTextMessage(phoneNumber, null, textMessages, null, null)
             onReceiveNotify(phoneNumber)
             Toast.makeText(
-                androidCtx, "Incoming message:  $textMessage", Toast.LENGTH_SHORT
+                androidCtx, "Incoming message:  $textMessages", Toast.LENGTH_SHORT
             ).show()
         }
 
