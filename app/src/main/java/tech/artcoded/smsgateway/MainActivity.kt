@@ -109,6 +109,7 @@ private fun getSecretSharedPref(context: Context): SharedPreferences {
 
 fun startMqtt(
     androidCtx: Context,
+    coroutineScope: CoroutineScope,
     endpoint: String,
     username: String,
     password: String,
@@ -140,14 +141,19 @@ fun startMqtt(
         }
 
         override fun messageArrived(topic: String, message: MqttMessage) {
-            val json = JSONTokener(message.toString()).nextValue() as JSONObject
-            val phoneNumber = json.getString("phoneNumber")
-            val textMessages = smsManager.divideMessage(json.getString("message"))
-            smsManager.sendMultipartTextMessage(phoneNumber, null, textMessages, null, null)
-            onReceiveNotify(phoneNumber)
-            Toast.makeText(
-                androidCtx, "Incoming message:  $textMessages:", Toast.LENGTH_SHORT
-            ).show()
+            coroutineScope.launch {
+                val json = JSONTokener(message.toString()).nextValue() as JSONObject
+                val phoneNumber = json.getString("phoneNumber")
+                val textMessages = smsManager.divideMessage(json.getString("message"))
+                for (textMessage in textMessages) {
+                    smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
+                    onReceiveNotify(phoneNumber)
+                    Toast.makeText(
+                        androidCtx, "Incoming message:  $textMessage:", Toast.LENGTH_SHORT
+                    ).show()
+                    delay(5000)
+                }
+            }
         }
 
         override fun deliveryComplete(token: IMqttDeliveryToken) {}
@@ -244,6 +250,7 @@ fun SmsGatewayMainPage(
                     }
                     startMqtt(
                         androidCtx,
+                        coroutineScope,
                         endpoint,
                         username,
                         password,
