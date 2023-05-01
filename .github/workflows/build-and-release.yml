@@ -56,3 +56,4 @@ jobs:
           asset_path: apk/app-debug.apk
           asset_name: ${{ github.event.repository.name }}.apk
           asset_content_type: application/zip
+
