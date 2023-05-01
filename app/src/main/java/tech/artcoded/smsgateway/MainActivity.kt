@@ -1,13 +1,9 @@
 package tech.artcoded.smsgateway
 
 import android.Manifest
-import android.content.Context
-import android.content.SharedPreferences
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
-import android.telephony.SmsManager
-import android.util.Log
-import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.RequiresApi
@@ -40,23 +36,11 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.security.crypto.EncryptedSharedPreferences
-import androidx.security.crypto.MasterKey
+import androidx.core.content.ContextCompat.startForegroundService
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.MultiplePermissionsState
 import com.google.accompanist.permissions.rememberMultiplePermissionsState
-import info.mqtt.android.service.MqttAndroidClient
-import info.mqtt.android.service.QoS
 import kotlinx.coroutines.*
-import org.eclipse.paho.client.mqttv3.DisconnectedBufferOptions
-import org.eclipse.paho.client.mqttv3.IMqttActionListener
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken
-import org.eclipse.paho.client.mqttv3.IMqttToken
-import org.eclipse.paho.client.mqttv3.MqttCallbackExtended
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions
-import org.eclipse.paho.client.mqttv3.MqttMessage
-import org.json.JSONObject
-import org.json.JSONTokener
 import tech.artcoded.smsgateway.ui.theme.SmsGatewayTheme
 
 const val TOPIC = "sms"
@@ -79,11 +63,12 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.ACCESS_NETWORK_STATE,
                     Manifest.permission.WAKE_LOCK,
                     Manifest.permission.FOREGROUND_SERVICE,
+                    Manifest.permission.RECEIVE_BOOT_COMPLETED,
                 )
             )
 
             SmsGatewayTheme {
-                    SmsGatewayMainPage(multiplePermissionsState)
+                SmsGatewayMainPage(multiplePermissionsState)
             }
 
 
@@ -93,117 +78,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private fun getSecretSharedPref(context: Context): SharedPreferences {
-
-    val masterKey = MasterKey.Builder(context).setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
-        .setUserAuthenticationRequired(true, 10).setRequestStrongBoxBacked(true).build()
-
-    return EncryptedSharedPreferences.create(
-        context,
-        "sms_gateway_secret_shared_prefs",
-        masterKey,
-        EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
-        EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
-    )
-}
-
-fun startMqtt(
-    androidCtx: Context,
-    coroutineScope: CoroutineScope,
-    endpoint: String,
-    username: String,
-    password: String,
-    onReceiveNotify: (n: String) -> Unit,
-    onFailure: (n: String) -> Unit,
-    onReconnect: () -> Unit,
-): MqttAndroidClient {
-    val mqttAndroidClient = MqttAndroidClient(
-        androidCtx, endpoint, "$username-android-client-${System.currentTimeMillis()}"
-    )
-    val smsManager = androidCtx.getSystemService(SmsManager::class.java)
-
-    mqttAndroidClient.setCallback(object : MqttCallbackExtended {
-        override fun connectComplete(reconnect: Boolean, serverURI: String) {
-            if (reconnect) {
-                Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
-                // Because Clean Session is true, we need to re-subscribe
-                subscribeToTopic(androidCtx, mqttAndroidClient)
-                onReconnect()
-            } else {
-                Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
-            }
-        }
-
-        override fun connectionLost(cause: Throwable?) {
-            val msg = "The Connection was lost."
-            Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
-            onFailure(msg)
-        }
-
-        override fun messageArrived(topic: String, message: MqttMessage) {
-            coroutineScope.launch {
-                val json = JSONTokener(message.toString()).nextValue() as JSONObject
-                val phoneNumber = json.getString("phoneNumber")
-                val textMessages = smsManager.divideMessage(json.getString("message"))
-                for (textMessage in textMessages) {
-                    smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
-                    onReceiveNotify(phoneNumber)
-                    Toast.makeText(
-                        androidCtx, "Incoming message:  $textMessage:", Toast.LENGTH_SHORT
-                    ).show()
-                    delay(5000)
-                }
-            }
-        }
-
-        override fun deliveryComplete(token: IMqttDeliveryToken) {}
-    })
-    val mqttConnectOptions = MqttConnectOptions()
-    mqttConnectOptions.isAutomaticReconnect = true
-    mqttConnectOptions.isCleanSession = false
-    mqttConnectOptions.userName = username
-    mqttConnectOptions.password = password.toCharArray()
-    mqttAndroidClient.connect(mqttConnectOptions, null, object : IMqttActionListener {
-        override fun onSuccess(asyncActionToken: IMqttToken) {
-            val disconnectedBufferOptions = DisconnectedBufferOptions()
-            disconnectedBufferOptions.isBufferEnabled = true
-            disconnectedBufferOptions.bufferSize = 100
-            disconnectedBufferOptions.isPersistBuffer = false
-            disconnectedBufferOptions.isDeleteOldestMessages = false
-            mqttAndroidClient.setBufferOpts(disconnectedBufferOptions)
-            subscribeToTopic(androidCtx, mqttAndroidClient)
-        }
-
-        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-            Log.e(this.javaClass.name, "Error: ", exception)
-            val msg = "Failed to connect: ${exception?.message}"
-            Toast.makeText(
-                androidCtx, msg, Toast.LENGTH_SHORT
-            ).show()
-            onFailure(msg)
-        }
-    })
-    return mqttAndroidClient
-}
-
-fun subscribeToTopic(context: Context, mqttAndroidClient: MqttAndroidClient) {
-    mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
-        override fun onSuccess(asyncActionToken: IMqttToken) {
-            Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
-        }
-
-        override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-            Log.e(this.javaClass.name, "Failed to subscribe $exception")
-            Toast.makeText(context, "Failed to subscribe to $TOPIC", Toast.LENGTH_SHORT).show()
-
-        }
-    })
-}
 
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SmsGatewayMainPage(
-    //defaultEndpoint: String,
     multiplePermissionsState: MultiplePermissionsState, modifier: Modifier = Modifier
 ) {
     if (!multiplePermissionsState.allPermissionsGranted) {
@@ -219,18 +97,25 @@ fun SmsGatewayMainPage(
     } else {
         // useful spaghetti code starts here
         val androidCtx = LocalContext.current
-        val prefs = getSecretSharedPref(androidCtx)
+        val prefs = Utils.createEncryptedSharedPrefDestructively(androidCtx)
+        var mqttService by remember {
+            mutableStateOf(Intent(androidCtx, MqttForegroundService::class.java))
+        }
+        mqttService.action = CHECK_STARTED_MQTT_SERVICE_ACTION
         var endpoint by remember {
             mutableStateOf(prefs.getString("endpoint", "")!!)
-        }
-        var mqttClient by remember {
-            mutableStateOf(null as MqttAndroidClient?)
         }
         var username by remember { mutableStateOf(prefs.getString("username", "")!!) }
         var password by remember { mutableStateOf(prefs.getString("password", "")!!) }
         var passwordVisible by remember { mutableStateOf(false) }
-        var started by remember { mutableStateOf(false) }
-        var logTraces by remember { mutableStateOf("Not started...") }
+        var started by remember { mutableStateOf(prefs.getBoolean("isConnected", false)) }
+        var logTraces by remember {
+            mutableStateOf(
+                if (started) {
+                    "Started"
+                } else "Not started..."
+            )
+        }
         val coroutineScope = rememberCoroutineScope()
         val startStopToggle: () -> Unit = {
             coroutineScope.launch {
@@ -238,9 +123,10 @@ fun SmsGatewayMainPage(
                 logTraces += if (started) "\nStarted..." else {
                     "\nStopped..."
                 }
-                mqttClient = if (!started && mqttClient != null) {
-                    mqttClient!!.apply { disconnect() }
-                    null
+                if (!started) {
+                    mqttService = Intent(androidCtx, MqttForegroundService::class.java)
+                    mqttService.action = STOP_MQTT_SERVICE_ACTION
+                    androidCtx.startForegroundService(mqttService)
                 } else {
                     with(prefs.edit()) {
                         putString("username", username)
@@ -248,22 +134,9 @@ fun SmsGatewayMainPage(
                         putString("endpoint", endpoint)
                         commit()
                     }
-                    startMqtt(
-                        androidCtx,
-                        coroutineScope,
-                        endpoint,
-                        username,
-                        password,
-                        onReceiveNotify = { logTraces += "\nSend message to $it" },
-                        onFailure = {
-                            logTraces += "\nMQTT Error: $it"
-                            started = false
-                        },
-                        onReconnect = {
-                            logTraces += "\nReconnected"
-                            started = true
-                        },
-                    )
+                    mqttService = Intent(androidCtx, MqttForegroundService::class.java)
+                    mqttService.action = START_MQTT_SERVICE_ACTION
+                    androidCtx.startForegroundService(mqttService)
                 }
             }
         }
