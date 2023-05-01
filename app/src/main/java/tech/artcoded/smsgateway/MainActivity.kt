@@ -146,7 +146,7 @@ fun startMqtt(
             smsManager.sendMultipartTextMessage(phoneNumber, null, textMessages, null, null)
             onReceiveNotify(phoneNumber)
             Toast.makeText(
-                androidCtx, "Incoming message:  $textMessages", Toast.LENGTH_SHORT
+                androidCtx, "Incoming message:  $textMessages:", Toast.LENGTH_SHORT
             ).show()
         }
 
