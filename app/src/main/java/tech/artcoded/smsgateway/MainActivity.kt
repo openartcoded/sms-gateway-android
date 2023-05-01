@@ -1,7 +1,6 @@
 package tech.artcoded.smsgateway
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.content.Context
 import android.content.SharedPreferences
 import android.os.Build
@@ -25,9 +24,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
@@ -87,11 +83,7 @@ class MainActivity : ComponentActivity() {
             )
 
             SmsGatewayTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background
-                ) {
                     SmsGatewayMainPage(multiplePermissionsState)
-                }
             }
 
 
@@ -202,7 +194,6 @@ fun subscribeToTopic(context: Context, mqttAndroidClient: MqttAndroidClient) {
     })
 }
 
-@SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
 @OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SmsGatewayMainPage(
@@ -222,9 +213,9 @@ fun SmsGatewayMainPage(
     } else {
         // useful spaghetti code starts here
         val androidCtx = LocalContext.current
-        var prefs = getSecretSharedPref(androidCtx)
+        val prefs = getSecretSharedPref(androidCtx)
         var endpoint by remember {
-            mutableStateOf(prefs.getString("defaultEndpoint", "tcp://192.168.1.133:61616")!!)
+            mutableStateOf(prefs.getString("endpoint", "")!!)
         }
         var mqttClient by remember {
             mutableStateOf(null as MqttAndroidClient?)
@@ -269,82 +260,78 @@ fun SmsGatewayMainPage(
                 }
             }
         }
-
         Box(
             modifier = Modifier
                 .padding(2.dp)
                 .fillMaxWidth()
         ) {
-            Scaffold {
-                Column(
-                    verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.Start
+            Column(
+                verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.Start
+            ) {
+                Spacer(modifier = Modifier.height(15.dp))
+                TextField(value = endpoint,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !started,
+                    label = { Text(text = "Endpoint") },
+                    onValueChange = { newText ->
+                        endpoint = newText.trim()
+                    })
+                Spacer(modifier = Modifier.height(5.dp))
+                TextField(value = username,
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !started,
+                    label = { Text(text = "Username") },
+                    onValueChange = { newText ->
+                        username = newText.trim()
+                    })
+                Spacer(modifier = Modifier.height(5.dp))
+                TextField(value = password,
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !started,
+                    label = { Text(text = "Password") },
+                    onValueChange = { newText ->
+                        password = newText
+                    },
+                    trailingIcon = {
+                        val image = if (passwordVisible) Icons.Filled.Visibility
+                        else Icons.Filled.VisibilityOff
+
+                        // Please provide localized description for accessibility services
+                        val description =
+                            if (passwordVisible) "Hide password" else "Show password"
+
+                        IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                            Icon(imageVector = image, description)
+                        }
+                    })
+                Button(
+                    onClick = startStopToggle,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(5.dp)
                 ) {
-                    Spacer(modifier = Modifier.height(15.dp))
-                    TextField(value = endpoint,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !started,
-                        label = { Text(text = "Endpoint") },
-                        onValueChange = { newText ->
-                            endpoint = newText.trim()
-                        })
-                    Spacer(modifier = Modifier.height(5.dp))
-                    TextField(value = username,
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !started,
-                        label = { Text(text = "Username") },
-                        onValueChange = { newText ->
-                            username = newText.trim()
-                        })
-                    Spacer(modifier = Modifier.height(5.dp))
-                    TextField(value = password,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = !started,
-                        label = { Text(text = "Password") },
-                        onValueChange = { newText ->
-                            password = newText
-                        },
-                        trailingIcon = {
-                            val image = if (passwordVisible) Icons.Filled.Visibility
-                            else Icons.Filled.VisibilityOff
-
-                            // Please provide localized description for accessibility services
-                            val description =
-                                if (passwordVisible) "Hide password" else "Show password"
-
-                            IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                                Icon(imageVector = image, description)
-                            }
-                        })
-                    Button(
-                        onClick = startStopToggle,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(5.dp)
-                    ) {
-                        Text(
-                            if (started) "Stop" else "Start", modifier = modifier
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Box(
+                    Text(
+                        if (started) "Stop" else "Start", modifier = modifier
+                    )
+                }
+                Spacer(modifier = Modifier.height(5.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(color = Color.LightGray, shape = RoundedCornerShape(5.dp))
+                ) {
+                    Text(
+                        text = logTraces,
                         modifier = Modifier
-                            .fillMaxSize()
-                            .background(color = Color.LightGray, shape = RoundedCornerShape(5.dp))
-                    ) {
-                        Text(
-                            text = logTraces,
-                            modifier = Modifier
-                                .padding(5.dp)
-                                .verticalScroll(rememberScrollState(0)),
-                        )
-                    }
+                            .padding(5.dp)
+                            .verticalScroll(rememberScrollState(0)),
+                    )
                 }
             }
-
         }
     }
 
