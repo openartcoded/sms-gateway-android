@@ -161,7 +161,7 @@ private fun startMqtt(
                     } catch (e: Exception) {
                         Log.e(this.javaClass.name, "could not call onReceiveNotify ${e.message}")
                     }
-                    Log.d(this.javaClass.name, "Incoming message:  $textMessage:")
+                    Log.d(this.javaClass.name, "Incoming message:  $textMessage")
                     delay(5000)
                 }
             }
