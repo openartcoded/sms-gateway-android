@@ -61,18 +61,20 @@ class MqttForegroundService() : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action ?: CHECK_STARTED_MQTT_SERVICE_ACTION) {
-            START_MQTT_SERVICE_ACTION -> {
-                val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
-                this.mqttAndroidClient = startMqtt(
-                    baseContext,
-                    coroutineScope,
-                    prefs.getString("endpoint", "")!!,
-                    prefs.getString("username", "")!!,
-                    prefs.getString("password", "")!!,
-                    onReceiveNotify = {},
-                    onFailure = onFailure,
-                    onSubscribed = onSubscribed
-                )
+            START_MQTT_SERVICE_ACTION, CHECK_STARTED_MQTT_SERVICE_ACTION -> {
+                if (this.mqttAndroidClient?.isConnected != true) {
+                    val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
+                    this.mqttAndroidClient = startMqtt(
+                        baseContext,
+                        coroutineScope,
+                        prefs.getString("endpoint", "")!!,
+                        prefs.getString("username", "")!!,
+                        prefs.getString("password", "")!!,
+                        onReceiveNotify = {},
+                        onFailure = onFailure,
+                        onSubscribed = onSubscribed
+                    )
+                }
 
 
             }
@@ -82,9 +84,6 @@ class MqttForegroundService() : Service() {
                 stopSelfResult(startId)
             }
 
-            CHECK_STARTED_MQTT_SERVICE_ACTION -> {
-                // do nothing
-            }
         }
 
         val channelId = "Artcoded SMS Service ID"
