@@ -59,8 +59,8 @@ class MqttForegroundService() : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent, flags: Int, startId: Int): Int {
-        when (intent.action) {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        when (intent?.action ?: CHECK_STARTED_MQTT_SERVICE_ACTION) {
             START_MQTT_SERVICE_ACTION -> {
                 val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
                 this.mqttAndroidClient = startMqtt(
