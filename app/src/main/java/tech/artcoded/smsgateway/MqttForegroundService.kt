@@ -42,8 +42,7 @@ class MqttForegroundService() : Service() {
         val onFailure: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
                 BUS.postValue(false)
-            }
-            /*   with(Utils.createEncryptedSharedPrefDestructively(context = it).edit()) {
+            }/*   with(Utils.createEncryptedSharedPrefDestructively(context = it).edit()) {
                    putBoolean("isConnected", false)
                    commit()
                }*/
@@ -51,8 +50,7 @@ class MqttForegroundService() : Service() {
         val onSubscribed: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
                 BUS.postValue(true)
-            }
-            /* with(Utils.createEncryptedSharedPrefDestructively(it).edit()) {
+            }/* with(Utils.createEncryptedSharedPrefDestructively(it).edit()) {
                  putBoolean("isConnected", true)
                  commit()
              }*/
@@ -88,17 +86,14 @@ class MqttForegroundService() : Service() {
 
         val channelId = "Artcoded SMS Service ID"
         val channel = NotificationChannel(
-            channelId,
-            channelId,
-            NotificationManager.IMPORTANCE_LOW
+            channelId, channelId, NotificationManager.IMPORTANCE_LOW
         )
         getSystemService(
-            NotificationManager::
-            class.java
+            NotificationManager::class.java
         ).createNotificationChannel(channel)
-        val notification: Notification.Builder = Notification.Builder(this, channelId)
-            .setContentText("Artcoded SMS Service is running")
-            .setContentTitle("Service enabled")
+        val notification: Notification.Builder =
+            Notification.Builder(this, channelId).setContentText("Artcoded SMS Service is running")
+                .setContentTitle("Service enabled")
 
         startForeground(1001, notification.build())
 
@@ -166,9 +161,7 @@ private fun startMqtt(
                     } catch (e: Exception) {
                         Log.e(this.javaClass.name, "could not call onReceiveNotify ${e.message}")
                     }
-                    Toast.makeText(
-                        androidCtx, "Incoming message:  $textMessage:", Toast.LENGTH_SHORT
-                    ).show()
+                    Log.d(this.javaClass.name, "Incoming message:  $textMessage:")
                     delay(5000)
                 }
             }
@@ -210,9 +203,7 @@ private fun startMqtt(
 }
 
 private fun subscribeToTopic(
-    context: Context,
-    mqttAndroidClient: MqttAndroidClient,
-    onSubscribed: (context: Context) -> Unit
+    context: Context, mqttAndroidClient: MqttAndroidClient, onSubscribed: (context: Context) -> Unit
 ) {
     mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken) {
