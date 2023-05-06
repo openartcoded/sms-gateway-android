@@ -28,7 +28,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -98,12 +97,11 @@ fun SmsGatewayMainPage(
         }
     } else {
         // useful spaghetti code starts here
-        val androidCtx = LocalContext.current
+        val androidCtx = activity.applicationContext
         val prefs = Utils.createEncryptedSharedPrefDestructively(androidCtx)
         var mqttService by remember {
             mutableStateOf(Intent(androidCtx, MqttForegroundService::class.java))
         }
-        mqttService.action = CHECK_STARTED_MQTT_SERVICE_ACTION
         var endpoint by remember {
             mutableStateOf(prefs.getString("endpoint", "")!!)
         }
@@ -116,6 +114,9 @@ fun SmsGatewayMainPage(
                 started = it
             }
         }
+        // check if started
+        mqttService.action = CHECK_STARTED_MQTT_SERVICE_ACTION
+        androidCtx.startForegroundService(mqttService)
         val coroutineScope = rememberCoroutineScope()
         val startStopToggle: () -> Unit = {
             coroutineScope.launch {

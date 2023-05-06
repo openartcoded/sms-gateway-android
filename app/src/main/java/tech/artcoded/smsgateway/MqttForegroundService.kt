@@ -42,27 +42,21 @@ class MqttForegroundService() : Service() {
         val onFailure: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
                 BUS.postValue(false)
-            }/*   with(Utils.createEncryptedSharedPrefDestructively(context = it).edit()) {
-                   putBoolean("isConnected", false)
-                   commit()
-               }*/
+            }
         }
         val onSubscribed: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
                 BUS.postValue(true)
-            }/* with(Utils.createEncryptedSharedPrefDestructively(it).edit()) {
-                 putBoolean("isConnected", true)
-                 commit()
-             }*/
+            }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action ?: CHECK_STARTED_MQTT_SERVICE_ACTION) {
             START_MQTT_SERVICE_ACTION, CHECK_STARTED_MQTT_SERVICE_ACTION -> {
-                if (this.mqttAndroidClient?.isConnected != true) {
+                if (mqttAndroidClient?.isConnected != true) {
                     val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
-                    this.mqttAndroidClient = startMqtt(
+                    mqttAndroidClient = startMqtt(
                         baseContext,
                         coroutineScope,
                         prefs.getString("endpoint", "")!!,
@@ -72,6 +66,8 @@ class MqttForegroundService() : Service() {
                         onFailure = onFailure,
                         onSubscribed = onSubscribed
                     )
+                } else {
+                    onSubscribed(baseContext)
                 }
 
 
@@ -125,24 +121,25 @@ private fun startMqtt(
         androidCtx, endpoint, "$username-android-client-${System.currentTimeMillis()}"
     )
     val smsManager = androidCtx.getSystemService(SmsManager::class.java)
-
     mqttAndroidClient.setCallback(object : MqttCallbackExtended {
         override fun connectComplete(reconnect: Boolean, serverURI: String) {
-            if (reconnect) {
-                Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
-                // Because Clean Session is true, we need to re-subscribe
-                subscribeToTopic(androidCtx, mqttAndroidClient, onSubscribed)
-
-            } else {
-                Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
+            try {
+                if (reconnect) {
+                    subscribeToTopic(androidCtx, mqttAndroidClient, onSubscribed)
+                    Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
+                }
+            } catch (e: Exception) {
+                Log.e(this.javaClass.name, "error: $e")
             }
         }
 
         override fun connectionLost(cause: Throwable?) {
-            val msg = "The Connection was lost."
-            Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
             try {
+                val msg = "The Connection was lost."
                 onFailure(androidCtx)
+                Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onFailure ${e.message}")
             }
@@ -155,7 +152,6 @@ private fun startMqtt(
                 val textMessages = smsManager.divideMessage(json.getString("message"))
                 for (textMessage in textMessages) {
                     smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
-
                     try {
                         onReceiveNotify(phoneNumber)
                     } catch (e: Exception) {
@@ -173,6 +169,7 @@ private fun startMqtt(
     mqttConnectOptions.isAutomaticReconnect = true
     mqttConnectOptions.isCleanSession = false
     mqttConnectOptions.userName = username
+    mqttConnectOptions.keepAliveInterval = 30
     mqttConnectOptions.password = password.toCharArray()
     mqttAndroidClient.connect(mqttConnectOptions, null, object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken) {
@@ -187,13 +184,12 @@ private fun startMqtt(
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
             Log.e(this.javaClass.name, "Error: ", exception)
-            val msg = "Failed to connect: ${exception?.message}"
-            Toast.makeText(
-                androidCtx, msg, Toast.LENGTH_SHORT
-            ).show()
-
             try {
                 onFailure(androidCtx)
+                val msg = "Failed to connect: ${exception?.message}"
+                Toast.makeText(
+                    androidCtx, msg, Toast.LENGTH_SHORT
+                ).show()
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onFailure ${e.message}")
             }
@@ -207,9 +203,9 @@ private fun subscribeToTopic(
 ) {
     mqttAndroidClient.subscribe(TOPIC, QoS.AtMostOnce.value, null, object : IMqttActionListener {
         override fun onSuccess(asyncActionToken: IMqttToken) {
-            Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
             try {
                 onSubscribed(context)
+                Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onSuccess ${e.message}")
             }
@@ -217,8 +213,11 @@ private fun subscribeToTopic(
 
         override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
             Log.e(this.javaClass.name, "Failed to subscribe $exception")
-            Toast.makeText(context, "Failed to subscribe to $TOPIC", Toast.LENGTH_SHORT).show()
-
+            try {
+                Toast.makeText(context, "Failed to subscribe to $TOPIC", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Log.e(this.javaClass.name, "$e")
+            }
         }
     })
 }
