@@ -3,13 +3,16 @@ package tech.artcoded.smsgateway
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import android.telephony.SmsManager
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.NotificationCompat
 import androidx.lifecycle.MutableLiveData
 import info.mqtt.android.service.MqttAndroidClient
 import info.mqtt.android.service.QoS
@@ -31,13 +34,20 @@ import org.json.JSONTokener
 
 const val START_MQTT_SERVICE_ACTION = "START_MQTT_SERVICE_ACTION"
 const val STOP_MQTT_SERVICE_ACTION = "STOP_MQTT_SERVICE_ACTION"
-const val CHECK_STARTED_MQTT_SERVICE_ACTION = "CHECK_STARTED_MQTT_SERVICE_ACTION"
 
 class MqttForegroundService() : Service() {
     private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.IO + Job())
     private var mqttAndroidClient: MqttAndroidClient? = null
-
+    private lateinit var notificationManager: NotificationManager
+    private var isStarted = false
+    override fun onCreate() {
+        super.onCreate()
+        // initialize dependencies here (e.g. perform dependency injection)
+        notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    }
     companion object {
+        private const val ONGOING_NOTIFICATION_ID = 101
+        private const val CHANNEL_ID = "1001"
         val BUS = MutableLiveData<Boolean>()
         val onFailure: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
@@ -52,58 +62,61 @@ class MqttForegroundService() : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action ?: CHECK_STARTED_MQTT_SERVICE_ACTION) {
-            START_MQTT_SERVICE_ACTION, CHECK_STARTED_MQTT_SERVICE_ACTION -> {
-                if (mqttAndroidClient?.isConnected != true) {
-                    val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
-                    mqttAndroidClient = startMqtt(
-                        baseContext,
-                        coroutineScope,
-                        prefs.getString("endpoint", "")!!,
-                        prefs.getString("username", "")!!,
-                        prefs.getString("password", "")!!,
-                        onReceiveNotify = {},
-                        onFailure = onFailure,
-                        onSubscribed = onSubscribed
-                    )
-                } else {
-                    onSubscribed(baseContext)
-                }
-
-
+        if(!isStarted) {
+            makeForeground()
+            if (mqttAndroidClient?.isConnected != true) {
+                val prefs = Utils.createEncryptedSharedPrefDestructively(context = baseContext)
+                mqttAndroidClient = startMqtt(
+                    baseContext,
+                    coroutineScope,
+                    prefs.getString("endpoint", "")!!,
+                    prefs.getString("username", "")!!,
+                    prefs.getString("password", "")!!,
+                    onReceiveNotify = {},
+                    onFailure = onFailure,
+                    onSubscribed = onSubscribed
+                )
+            } else {
+                onSubscribed(baseContext)
             }
-
-            STOP_MQTT_SERVICE_ACTION -> {
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelfResult(startId)
-            }
-
+            isStarted = true
         }
-
-        val channelId = "Artcoded SMS Service ID"
-        val channel = NotificationChannel(
-            channelId, channelId, NotificationManager.IMPORTANCE_LOW
-        )
-        getSystemService(
-            NotificationManager::class.java
-        ).createNotificationChannel(channel)
-        val notification: Notification.Builder =
-            Notification.Builder(this, channelId).setContentText("Artcoded SMS Service is running")
-                .setContentTitle("Service enabled")
-
-        startForeground(1001, notification.build())
-
-        return super.onStartCommand(intent, flags, startId)
+        return START_STICKY
     }
 
     override fun onBind(intent: Intent): IBinder? {
-        return null
+        throw UnsupportedOperationException()
     }
 
     override fun onDestroy() {
+        super.onDestroy()
         onFailure(this)
         mqttAndroidClient?.disconnect()
-        super.onDestroy()
+        isStarted = false
+    }
+    private fun makeForeground() {
+        val intent = Intent(this, MainActivity::class.java)
+        val pendingIntent = PendingIntent.getActivity(
+            this, 0, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+        createServiceNotificationChannel()
+        val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("Artcoded SMS Service")
+            .setContentText("Artcoded SMS Service is running")
+            .setSmallIcon(androidx.core.R.drawable.ic_call_answer)
+            .setContentIntent(pendingIntent)
+            .build()
+        startForeground(ONGOING_NOTIFICATION_ID, notification)
+    }
+    private fun createServiceNotificationChannel() {
+        val channel = NotificationChannel(
+            CHANNEL_ID,
+            "Foreground Service channel",
+            NotificationManager.IMPORTANCE_DEFAULT
+        )
+        channel.lockscreenVisibility = Notification.VISIBILITY_PRIVATE
+        notificationManager.createNotificationChannel(channel)
     }
 }
 
@@ -131,7 +144,7 @@ private fun startMqtt(
                     Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                Log.e(this.javaClass.name, "error: $e")
+                Log.e(this.javaClass.name, " connect complete error: $e")
             }
         }
 

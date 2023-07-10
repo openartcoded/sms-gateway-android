@@ -58,6 +58,7 @@ class MainActivity : ComponentActivity() {
                     Manifest.permission.WAKE_LOCK,
                     Manifest.permission.FOREGROUND_SERVICE,
                     Manifest.permission.RECEIVE_BOOT_COMPLETED,
+                    Manifest.permission.POST_NOTIFICATIONS,
                 )
             )
 
@@ -114,9 +115,7 @@ fun SmsGatewayMainPage(
                 started = it
             }
         }
-        // check if started
-        mqttService.action = CHECK_STARTED_MQTT_SERVICE_ACTION
-        androidCtx.startForegroundService(mqttService)
+
         val coroutineScope = rememberCoroutineScope()
         val startStopToggle: () -> Unit = {
             coroutineScope.launch {
@@ -124,7 +123,7 @@ fun SmsGatewayMainPage(
                 if (!started) {
                     mqttService = Intent(androidCtx, MqttForegroundService::class.java)
                     mqttService.action = STOP_MQTT_SERVICE_ACTION
-                    androidCtx.startForegroundService(mqttService)
+                    androidCtx.stopService(mqttService)
                 } else {
                     with(prefs.edit()) {
                         putString("username", username)
