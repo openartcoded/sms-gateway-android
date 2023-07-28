@@ -57,6 +57,7 @@ class MqttForegroundService() : Service() {
         val onSubscribed: (context: Context) -> Unit = {
             if (BUS.hasActiveObservers()) {
                 BUS.postValue(true)
+
             }
         }
     }
@@ -139,9 +140,9 @@ private fun startMqtt(
             try {
                 if (reconnect) {
                     subscribeToTopic(androidCtx, mqttAndroidClient, onSubscribed)
-                    Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
+                   // Toast.makeText(androidCtx, "Reconnected", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
+                   // Toast.makeText(androidCtx, "Connected", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, " connect complete error: $e")
@@ -152,7 +153,7 @@ private fun startMqtt(
             try {
                 val msg = "The Connection was lost."
                 onFailure(androidCtx)
-                Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
+               // Toast.makeText(androidCtx, msg, Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onFailure ${e.message}")
             }
@@ -164,6 +165,9 @@ private fun startMqtt(
                 val phoneNumber = json.getString("phoneNumber")
                 val textMessages = smsManager.divideMessage(json.getString("message"))
                 for (textMessage in textMessages) {
+                    if(textMessage.equals("SMS_KEEP_ALIVE")) {
+                        continue;
+                    }
                     smsManager.sendTextMessage(phoneNumber, null, textMessage, null, null)
                     try {
                         onReceiveNotify(phoneNumber)
@@ -218,7 +222,7 @@ private fun subscribeToTopic(
         override fun onSuccess(asyncActionToken: IMqttToken) {
             try {
                 onSubscribed(context)
-                Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
+                //Toast.makeText(context, "Subscribed to $TOPIC", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Log.e(this.javaClass.name, "could not call onSuccess ${e.message}")
             }
